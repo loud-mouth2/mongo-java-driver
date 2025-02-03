@@ -20,11 +20,7 @@ import com.mongodb.MongoSocketException;
 import com.mongodb.MongoSocketOpenException;
 import com.mongodb.MongoSocketReadException;
 import com.mongodb.ServerAddress;
-import com.mongodb.connection.AsyncCompletionHandler;
-import com.mongodb.connection.BufferProvider;
-import com.mongodb.connection.SocketSettings;
-import com.mongodb.connection.SslSettings;
-import com.mongodb.connection.Stream;
+import com.mongodb.connection.*;
 import org.bson.ByteBuf;
 
 import javax.net.SocketFactory;
@@ -38,6 +34,7 @@ import java.util.Iterator;
 import java.util.List;
 
 import static com.mongodb.assertions.Assertions.notNull;
+import static com.mongodb.internal.connection.SocketStreamHelper.configureSocket;
 
 public class SocketStream implements Stream {
     private final ServerAddress address;
@@ -72,6 +69,10 @@ public class SocketStream implements Stream {
     }
 
     protected Socket initializeSocket() throws IOException {
+        if ("true".equalsIgnoreCase(System.getenv("LOCAL_DEV_BUILD"))){
+            return initializeSocketOverSocksProxy();
+        }
+
         Iterator<InetSocketAddress> inetSocketAddresses = address.getSocketAddresses().iterator();
         while (inetSocketAddresses.hasNext()) {
             Socket socket = socketFactory.createSocket();
@@ -182,5 +183,24 @@ public class SocketStream implements Stream {
     @Override
     public boolean isClosed() {
         return isClosed;
+    }
+
+    private Socket initializeSocketOverSocksProxy() throws IOException {
+        Socket createdSocket = socketFactory.createSocket();
+        configureSocket(createdSocket, settings);
+        /*
+          Wrap the configured socket with SocksSocket to add extra functionality.
+          Reason for separate steps: We can't directly extend Java 11 methods within 'SocksSocket'
+          to configure itself.
+         */
+        ProxySettings proxySettings = ProxySettings.builder().applySystemProperties().build();
+        SocksSocket socksProxy = new SocksSocket(createdSocket, proxySettings);
+
+        socksProxy.connect(toSocketAddress(address.getHost(), address.getPort()), 10_000);
+        return socksProxy;
+    }
+
+    private static InetSocketAddress toSocketAddress(final String serverHost, final int serverPort) {
+        return InetSocketAddress.createUnresolved(serverHost, serverPort);
     }
 }
