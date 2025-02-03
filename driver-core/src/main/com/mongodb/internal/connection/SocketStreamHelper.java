@@ -27,6 +27,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.SocketException;
 import java.net.SocketOption;
 
 import static com.mongodb.internal.connection.SslHelper.enableHostNameVerification;
@@ -74,19 +75,7 @@ final class SocketStreamHelper {
 
     static void initialize(final Socket socket, final InetSocketAddress inetSocketAddress, final SocketSettings settings,
                            final SslSettings sslSettings) throws IOException {
-        socket.setTcpNoDelay(true);
-        socket.setSoTimeout(settings.getReadTimeout(MILLISECONDS));
-        socket.setKeepAlive(true);
-
-        // Adding keep alive options for users of Java 11+. These options will be ignored for older Java versions.
-        setExtendedSocketOptions(socket);
-
-        if (settings.getReceiveBufferSize() > 0) {
-            socket.setReceiveBufferSize(settings.getReceiveBufferSize());
-        }
-        if (settings.getSendBufferSize() > 0) {
-            socket.setSendBufferSize(settings.getSendBufferSize());
-        }
+        configureSocket(socket, settings);
         if (sslSettings.isEnabled() || socket instanceof SSLSocket) {
             if (!(socket instanceof SSLSocket)) {
                 throw new MongoInternalException("SSL is enabled but the socket is not an instance of javax.net.ssl.SSLSocket");
@@ -105,6 +94,22 @@ final class SocketStreamHelper {
             sslSocket.setSSLParameters(sslParameters);
         }
         socket.connect(inetSocketAddress, settings.getConnectTimeout(MILLISECONDS));
+    }
+
+    static void configureSocket(Socket socket, SocketSettings settings) throws SocketException {
+        socket.setTcpNoDelay(true);
+        socket.setSoTimeout(settings.getReadTimeout(MILLISECONDS));
+        socket.setKeepAlive(true);
+
+        // Adding keep alive options for users of Java 11+. These options will be ignored for older Java versions.
+        setExtendedSocketOptions(socket);
+
+        if (settings.getReceiveBufferSize() > 0) {
+            socket.setReceiveBufferSize(settings.getReceiveBufferSize());
+        }
+        if (settings.getSendBufferSize() > 0) {
+            socket.setSendBufferSize(settings.getSendBufferSize());
+        }
     }
 
     static void setExtendedSocketOptions(final Socket socket) {
